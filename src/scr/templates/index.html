@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Smart Code Reviewer</title>
+    <style>
+      :root { --bg:#f6f8fb; --card:#ffffff; --ink:#1f2937; --muted:#4b5563; --accent:#0f766e; }
+      body { margin:0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif; background: linear-gradient(145deg, #edf7f5, #f6f8fb); color: var(--ink); }
+      .wrap { max-width: 980px; margin: 40px auto; padding: 20px; }
+      .card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
+      .row { display:flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+      input, textarea, select, button { width:100%; padding: 10px; border:1px solid #d1d5db; border-radius: 8px; font-size:14px; }
+      button { background: var(--accent); color:white; border:none; cursor:pointer; font-weight: 600; }
+      button:hover { filter:brightness(0.95); }
+      .hidden { display:none; }
+      .mode-chip { display:inline-flex; gap:6px; align-items:center; padding:8px 10px; border:1px solid #cbd5e1; border-radius:999px; cursor:pointer; }
+      .mode-chip input { width:auto; }
+      .muted { color: var(--muted); font-size: 13px; }
+      @media (max-width: 640px) { .wrap { margin: 12px auto; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Smart Code Reviewer</h1>
+      <p class="muted">Run local reviews via git diff, pasted diff, or explicit paths.</p>
+      <div class="card">
+        <div class="row">
+          <label class="mode-chip"><input type="radio" name="mode" value="git" checked /> Git diff</label>
+          <label class="mode-chip"><input type="radio" name="mode" value="diff" /> Upload/Paste diff</label>
+          <label class="mode-chip"><input type="radio" name="mode" value="paths" /> Paths</label>
+        </div>
+
+        <div id="gitFields">
+          <label>Base ref</label>
+          <input id="base" placeholder="origin/main" />
+        </div>
+
+        <div id="diffFields" class="hidden">
+          <label>Paste unified diff</label>
+          <textarea id="diffText" rows="12" placeholder="diff --git a/file.py b/file.py ..."></textarea>
+          <label>Or upload diff file</label>
+          <input type="file" id="diffFile" accept=".diff,.patch,.txt" />
+        </div>
+
+        <div id="pathsFields" class="hidden">
+          <label>Comma-separated paths</label>
+          <input id="pathsInput" placeholder="src/scr/engine.py, tests/test_engine.py" />
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <div style="flex:1;min-width:180px;"><label>Fail on</label><select id="failOn"><option>HIGH</option><option>BLOCKER</option><option>MEDIUM</option><option>LOW</option><option>NIT</option></select></div>
+          <div style="flex:1;min-width:180px;"><label>Max findings</label><input id="maxFindings" type="number" value="12" /></div>
+          <div style="flex:1;min-width:180px;"><label>Max per file</label><input id="maxPerFile" type="number" value="3" /></div>
+        </div>
+
+        <div style="margin-top:14px;"><button id="runBtn">Run Review</button></div>
+        <p id="status" class="muted"></p>
+      </div>
+    </div>
+
+    <script>
+      const modeInputs = [...document.querySelectorAll('input[name="mode"]')];
+      const gitFields = document.getElementById('gitFields');
+      const diffFields = document.getElementById('diffFields');
+      const pathsFields = document.getElementById('pathsFields');
+      const statusEl = document.getElementById('status');
+
+      function setMode(mode) {
+        gitFields.classList.toggle('hidden', mode !== 'git');
+        diffFields.classList.toggle('hidden', mode !== 'diff');
+        pathsFields.classList.toggle('hidden', mode !== 'paths');
+      }
+      modeInputs.forEach(el => el.addEventListener('change', () => setMode(el.value)));
+
+      async function fileToText(file) {
+        if (!file) return '';
+        return await file.text();
+      }
+
+      document.getElementById('runBtn').addEventListener('click', async () => {
+        const mode = modeInputs.find(x => x.checked).value;
+        const payload = {
+          mode,
+          base: document.getElementById('base').value || null,
+          diffText: null,
+          paths: null,
+          failOn: document.getElementById('failOn').value,
+          maxFindings: Number(document.getElementById('maxFindings').value || 12),
+          maxPerFile: Number(document.getElementById('maxPerFile').value || 3),
+        };
+
+        if (mode === 'diff') {
+          let diffText = document.getElementById('diffText').value;
+          if (!diffText.trim()) {
+            diffText = await fileToText(document.getElementById('diffFile').files[0]);
+          }
+          payload.diffText = diffText;
+        }
+        if (mode === 'paths') {
+          payload.paths = document.getElementById('pathsInput').value.split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        statusEl.textContent = 'Running review...';
+        const resp = await fetch('/api/review', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          statusEl.textContent = 'Review failed: ' + (await resp.text());
+          return;
+        }
+        const data = await resp.json();
+        window.location.href = `/report/${data.reportId}`;
+      });
+    </script>
+  </body>
+</html>

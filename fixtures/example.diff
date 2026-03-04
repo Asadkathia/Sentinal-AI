@@ -1,0 +1,27 @@
+diff --git a/src/example.py b/src/example.py
+index 0000000..1111111 100644
+--- a/src/example.py
++++ b/src/example.py
+@@ -1,3 +1,22 @@
+-def add(a, b):
+-    return a + b
++def risky(a, b, c, d, e, f):
++    TODO = "replace before release"
++    try:
++        x = a + b
++        if x > 0:
++            if c:
++                if d:
++                    if e:
++                        if f:
++                            return x
++        return "fallback"
++    except Exception:
++        pass
++    return None
++
++def duplicate():
++    val = 1
++    val = 1
++    val = 1
++    return val

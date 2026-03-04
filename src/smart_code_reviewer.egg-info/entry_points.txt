@@ -1,0 +1,2 @@
+[console_scripts]
+scr = scr.cli:run

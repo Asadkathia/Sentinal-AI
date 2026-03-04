@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Report</title>
+    <style>
+      :root { --bg:#fbfaf7; --card:#fff; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --accent:#0f766e; }
+      body { margin:0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif; background: radial-gradient(circle at top left, #fff6e8, #f7fbff 45%, #fbfaf7); color: var(--ink); }
+      .wrap { max-width: 1200px; margin: 24px auto; padding: 12px; }
+      .head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+      .layout { display:grid; grid-template-columns: 360px 1fr; gap: 14px; margin-top:14px; }
+      .panel { background: var(--card); border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
+      .panel .inner { padding: 12px; }
+      .finding { border:1px solid var(--line); border-radius:8px; margin-bottom:8px; padding:8px; cursor:pointer; }
+      .finding:hover { border-color: #9ca3af; }
+      .tags { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+      .tag { font-size:12px; border:1px solid var(--line); border-radius:999px; padding:4px 8px; }
+      input, select, button { padding:8px; border:1px solid #d1d5db; border-radius:8px; }
+      button { background: var(--accent); color:white; border:none; cursor:pointer; }
+      pre { background: #0f172a; color: #f8fafc; padding:10px; border-radius:8px; overflow:auto; font-size:12px; }
+      .muted { color: var(--muted); }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="head">
+        <h1>Review Report</h1>
+        <div>
+          <button id="downloadMd">Download Markdown</button>
+          <button id="downloadJson">Download JSON</button>
+        </div>
+      </div>
+
+      <div class="tags">
+        <select id="severityFilter"><option value="">All Severities</option></select>
+        <select id="categoryFilter"><option value="">All Categories</option></select>
+        <select id="fileFilter"><option value="">All Files</option></select>
+        <input id="search" placeholder="Search findings" />
+      </div>
+
+      <div class="layout">
+        <div class="panel"><div class="inner"><div id="list"></div></div></div>
+        <div class="panel"><div class="inner" id="detail"><p class="muted">Select a finding to view details.</p></div></div>
+      </div>
+    </div>
+
+    <script>
+      const reportId = "{{ report_id }}";
+      let findings = [];
+
+      function download(name, content, type) {
+        const blob = new Blob([content], { type });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+      }
+
+      function renderFilters() {
+        const sev = [...new Set(findings.map(f => f.severity))];
+        const cat = [...new Set(findings.map(f => f.category))];
+        const file = [...new Set(findings.map(f => f.file))];
+        for (const [id, values] of [["severityFilter", sev], ["categoryFilter", cat], ["fileFilter", file]]) {
+          const el = document.getElementById(id);
+          values.sort().forEach(v => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = v;
+            el.appendChild(o);
+          });
+        }
+      }
+
+      function passesFilters(f) {
+        const s = document.getElementById('severityFilter').value;
+        const c = document.getElementById('categoryFilter').value;
+        const file = document.getElementById('fileFilter').value;
+        const q = document.getElementById('search').value.toLowerCase().trim();
+        if (s && f.severity !== s) return false;
+        if (c && f.category !== c) return false;
+        if (file && f.file !== file) return false;
+        if (q) {
+          const hay = `${f.title} ${f.message} ${f.file}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      }
+
+      function renderList() {
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+        const filtered = findings.filter(passesFilters);
+        if (!filtered.length) {
+          list.innerHTML = '<p class="muted">No findings match current filters.</p>';
+          return;
+        }
+        filtered.forEach(f => {
+          const el = document.createElement('div');
+          el.className = 'finding';
+          el.innerHTML = `<strong>${f.title}</strong><br/><span class="muted">${f.severity} · ${f.category} · ${f.file}:${f.location?.start_line || '?'}</span>`;
+          el.addEventListener('click', () => renderDetail(f));
+          list.appendChild(el);
+        });
+      }
+
+      function renderDetail(f) {
+        const detail = document.getElementById('detail');
+        const recs = (f.recommendation || []).map(x => `<li>${x}</li>`).join('') || '<li>None</li>';
+        const tests = (f.suggested_tests || []).map(x => `<li>${x}</li>`).join('') || '<li>None</li>';
+        detail.innerHTML = `
+          <h2>${f.title}</h2>
+          <p><strong>File:</strong> ${f.file}</p>
+          <p><strong>Location:</strong> ${f.location?.start_line || '?'}-${f.location?.end_line || f.location?.start_line || '?'}</p>
+          <p><strong>Symbol:</strong> ${f.location?.symbol || 'n/a'}</p>
+          <p>${f.message}</p>
+          <h3>Recommendation steps</h3>
+          <ul>${recs}</ul>
+          <h3>Suggested tests</h3>
+          <ul>${tests}</ul>
+          <h3>Relevant context</h3>
+          <pre>${(f.context || 'No context available').replace(/</g,'&lt;')}</pre>
+          ${f.suggested_patch ? `<h3>Suggested patch</h3><pre>${f.suggested_patch.replace(/</g,'&lt;')}</pre>` : ''}
+        `;
+      }
+
+      async function init() {
+        const resp = await fetch(`/api/report/${reportId}`);
+        const report = await resp.json();
+        findings = report.findings || [];
+        renderFilters();
+        renderList();
+        ['severityFilter','categoryFilter','fileFilter','search'].forEach(id => {
+          document.getElementById(id).addEventListener('input', renderList);
+        });
+
+        document.getElementById('downloadJson').onclick = () => {
+          download(`scr-${reportId}.json`, JSON.stringify(report, null, 2), 'application/json');
+        };
+        document.getElementById('downloadMd').onclick = async () => {
+          const md = await (await fetch(`/api/report/${reportId}/markdown`)).text();
+          download(`scr-${reportId}.md`, md, 'text/markdown');
+        };
+      }
+
+      init();
+    </script>
+  </body>
+</html>

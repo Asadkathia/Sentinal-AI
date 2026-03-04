@@ -1,0 +1,25 @@
+fail_on: HIGH
+max_findings_total: 12
+max_findings_per_file: 3
+enable_llm: auto
+llm_provider: gemini
+llm_model: gemini-2.5-flash
+redact_patterns:
+  - "(?i)(api[_-]?key|token|password|secret)\\s*[:=]\\s*['\\\"]?[A-Za-z0-9_\\-]{8,}"
+  - "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\\s\\S]+?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+  - "(?i)bearer\\s+[A-Za-z0-9_\\-.=]{12,}"
+exclude_globs:
+  - dist/**
+  - build/**
+  - '**/*.min.js'
+  - vendor/**
+tool_commands:
+  python:
+    - ruff check .
+    - pytest -q
+  node:
+    - npm run lint
+    - npm test -- --watch=false
+  go:
+    - go vet ./...
+    - go test ./...
