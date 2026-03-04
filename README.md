@@ -1,0 +1,222 @@
+# Smart Code Reviewer (`scr`)
+
+Smart Code Reviewer is an offline-first code review assistant with:
+- a CLI (`scr`)
+- a local Web UI (`scr serve`)
+- one shared review engine used by both
+
+It reviews:
+- git diffs
+- unified diff files
+- explicit paths
+
+## Features
+
+- Shared engine for CLI and Web API/UI (`src/scr/engine.py`)
+- Offline static heuristics (no LLM required)
+- Optional tool runner (lint/tests) with safe "not run" behavior
+- Optional OpenAI-based semantic pass (strict JSON validated + sanitized)
+- Redaction pass before LLM calls
+- Deterministic dedupe/ranking and CI-friendly exit codes
+- Markdown and JSON report export
+
+## Install
+
+### Recommended
+
+```bash
+python3 -m pip install -e .
+```
+
+If your environment blocks editable installs, run directly:
+
+```bash
+PYTHONPATH=src python3 -m scr.cli --help
+```
+
+## Quickstart
+
+### 1) Initialize config
+
+```bash
+scr config init
+```
+
+### 2) Review a diff fixture
+
+```bash
+scr review --diff fixtures/example.diff
+```
+
+### 3) Run web UI
+
+```bash
+scr serve
+# open http://127.0.0.1:7331
+```
+
+## CLI Commands
+
+```bash
+scr --help
+scr review --git [--base <ref>] [--format md|json|both] [--out <path>] [--fail-on <severity>] [--no-llm]
+scr review --diff <diff_path> [same flags...]
+scr review --paths <path...> [same flags...]
+scr config init
+scr serve [--host 127.0.0.1] [--port 7331] [--no-llm]
+```
+
+### Defaults
+
+- `--format`: `md`
+- `--fail-on`: `HIGH`
+- `--max-findings`: `12`
+- `--max-per-file`: `3`
+
+### Exit Codes
+
+- `0`: no findings at/above threshold
+- `1`: findings at/above threshold
+- `2`: tool error (invalid input, git/base resolution failure, parse issues, write failures)
+
+## Report Output
+
+Reports always include metadata:
+- input mode
+- base ref (if git)
+- whether LLM was used (`llm_used`)
+- tools run and status summary
+- config used for this run
+
+This appears in both:
+- Markdown header block
+- JSON metadata
+
+## Web UI
+
+Run:
+
+```bash
+scr serve --host 127.0.0.1 --port 7331
+```
+
+Pages:
+- `/`: choose mode (`git`, `diff`, `paths`) and run review
+- `/report/{reportId}`: filter/search findings and inspect details
+
+API:
+- `GET /api/health` -> `{ "ok": true }`
+- `POST /api/review`
+- `GET /api/report/{reportId}`
+- `GET /api/report/{reportId}/markdown`
+
+`POST /api/review` body examples:
+
+```json
+{ "mode": "git", "base": "origin/main" }
+```
+
+```json
+{ "mode": "diff", "diffText": "diff --git a/x b/x ..." }
+```
+
+```json
+{ "mode": "paths", "paths": ["src/scr/engine.py", "tests/test_api.py"] }
+```
+
+## Configuration
+
+Config file: `.smartreview.yml`
+
+Default:
+
+```yaml
+fail_on: HIGH
+max_findings_total: 12
+max_findings_per_file: 3
+enable_llm: auto
+llm_provider: openai
+llm_model: gpt-4o-mini
+redact_patterns:
+  - "..."
+exclude_globs:
+  - dist/**
+  - build/**
+  - '**/*.min.js'
+  - vendor/**
+tool_commands:
+  python:
+    - ruff check .
+    - pytest -q
+  node:
+    - npm run lint
+    - npm test -- --watch=false
+  go:
+    - go vet ./...
+    - go test ./...
+```
+
+## LLM Setup (Optional)
+
+Environment variables:
+- `SCR_LLM_PROVIDER=openai|disabled`
+- `SCR_OPENAI_API_KEY=...`
+- `SCR_LLM_MODEL=gpt-4o-mini` (or compatible)
+
+Disable per run:
+
+```bash
+scr review --git --no-llm
+```
+
+### Privacy / Redaction
+
+Before sending data to LLM, the system redacts:
+- credential-like patterns (`token`, `password`, `api_key`, etc.)
+- private key blocks
+- bearer tokens
+- `.env` style content markers
+
+It also caps payload size before remote calls.
+
+## Tests
+
+Run:
+
+```bash
+PYTHONPATH=src python3 -m pytest -q
+```
+
+Included:
+- diff parser unit test
+- rank/dedupe deterministic ordering test
+- markdown/json renderer test
+- golden test: `fixtures/example.diff` -> `fixtures/example_report.json`
+- API smoke test for `/api/review`
+
+## Architecture
+
+- Engine: `src/scr/engine.py`
+- Inputs: `src/scr/inputs.py`
+- Analyzers:
+  - Static: `src/scr/analyzers/static.py`
+  - Tool runner: `src/scr/analyzers/tool_runner.py`
+  - LLM adapter: `src/scr/analyzers/llm.py`
+- Ranking/dedupe: `src/scr/ranking.py`
+- Renderers: `src/scr/renderers.py`
+- CLI: `src/scr/cli.py`
+- Web app: `src/scr/web.py`
+
+## Limitations
+
+- Heuristics are intentionally conservative and may miss some semantic issues.
+- LLM output depends on provider availability and is post-validated/capped.
+- Tool-runner summaries are short by design; full logs are not yet persisted as artifacts.
+
+## Roadmap
+
+- Inline per-finding diff hunk matching (not just first-hunk fallback)
+- Persistent report storage/history
+- Richer language-specific static rules
+- Optional SARIF output for CI platforms
+# Sentinal-AI
